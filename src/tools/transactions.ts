@@ -5,6 +5,7 @@ import { basename } from "node:path";
 import {
   listBankTransactions,
   updateExplanation,
+  createExplanation,
   uploadAttachment,
   deleteExistingAttachment,
   fetchUrlAsBase64,
