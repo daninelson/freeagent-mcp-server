@@ -281,4 +281,85 @@ export function registerTransactionTools(server: McpServer): void {
       }
     }
   );
+  
+  // ── Categorise unexplained ─────────────────────────────────────────────
+
+  server.registerTool(
+    "freeagent_categorise_unexplained",
+    {
+      description:
+        "Categorise a bank transaction that has no explanation yet (null explanation_id). " +
+        "Creates a new explanation with type 'Manual', setting the category and description directly. " +
+        "Unlike freeagent_explain_transaction, this does NOT require an existing explanation_id — " +
+        "use it for transactions returned by freeagent_list_transactions with explanation_id=null.\n\n" +
+        "SAFETY: Categorises and optionally approves in one step. " +
+        "markExplained defaults to true — set to false if you want to review later in the web UI.",
+      inputSchema: z
+        .object({
+          bankTransactionId: z
+            .string()
+            .min(1)
+            .describe("FreeAgent bank transaction ID (from the `id` field in list_transactions, NOT explanation_id)"),
+          category: z
+            .string()
+            .regex(CATEGORY_PATH_REGEX, "Must be a FreeAgent category path like /v2/categories/285")
+            .describe("FreeAgent category path (e.g. '/v2/categories/280')"),
+          description: z
+            .string()
+            .min(1)
+            .max(1000)
+            .describe("Human-readable description for the transaction"),
+          markExplained: z
+            .boolean()
+            .default(true)
+            .describe("Set false to leave 'marked for review' (default true = immediately approved)"),
+        })
+        .strict(),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
+    },
+    async (args) => {
+      try {
+        const explanation = await createExplanation({
+          bankTransactionId: args.bankTransactionId,
+          categoryUrl: args.category,
+          description: args.description,
+          markExplained: args.markExplained,
+        });
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  success: true,
+                  explanationId: explanation.id,
+                  category: explanation.category,
+                  description: explanation.description,
+                  marked_for_review: explanation.marked_for_review,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+          structuredContent: {
+            success: true,
+            explanationId: explanation.id,
+            category: explanation.category,
+            description: explanation.description,
+          },
+        };
+      } catch (err) {
+        return {
+          content: [{ type: "text", text: handleFAError(err) }],
+          isError: true,
+        };
+      }
+    }
+  );
 }
