@@ -32,6 +32,9 @@ export interface BankTransactionExplanation {
   marked_for_review: boolean;
   type?: string;
   attachment?: string;
+  transfer_bank_account?: string;
+  paid_user?: string;
+  is_money_paid_to_user?: boolean;
 }
 
 export interface BankTransaction {

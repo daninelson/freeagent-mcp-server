@@ -371,6 +371,7 @@ export async function createExpense(opts: {
 /**
  * Create a new bank transaction explanation for a previously-unexplained transaction.
  * Uses type "Manual" so no expense object is needed.
+ * Fetches the transaction's dated_on and amount automatically.
  */
 export async function createExplanation(opts: {
   bankTransactionId: string;
@@ -380,13 +381,52 @@ export async function createExplanation(opts: {
 }): Promise<BankTransactionExplanation> {
   validateCategoryPath(opts.categoryUrl);
 
+  const tx = await faGet<{ bank_transaction: BankTransaction }>(
+    `/bank_transactions/${opts.bankTransactionId}`
+  );
+
   const body = {
     bank_transaction_explanation: {
       bank_transaction: `${FA_API_BASE}/bank_transactions/${opts.bankTransactionId}`,
       type: "Manual",
       category: `${FA_API_BASE}${opts.categoryUrl}`,
       description: opts.description,
+      dated_on: tx.bank_transaction.dated_on,
+      gross_value: tx.bank_transaction.amount,
       marked_for_review: opts.markExplained === false,
+    },
+  };
+
+  const data = await faPost<{ bank_transaction_explanation: BankTransactionExplanation }>(
+    "/bank_transaction_explanations",
+    body
+  );
+  const explanation = data.bank_transaction_explanation;
+  return { ...explanation, id: extractId(explanation) };
+}
+
+/**
+ * Create a Transfer-type bank transaction explanation.
+ * Transfers move money between accounts — no category needed, just the target bank account.
+ */
+export async function createTransfer(opts: {
+  bankTransactionId: string;
+  transferBankAccountId: string;
+  description?: string;
+}): Promise<BankTransactionExplanation> {
+  const tx = await faGet<{ bank_transaction: BankTransaction }>(
+    `/bank_transactions/${opts.bankTransactionId}`
+  );
+
+  const body = {
+    bank_transaction_explanation: {
+      bank_transaction: `${FA_API_BASE}/bank_transactions/${opts.bankTransactionId}`,
+      type: "Transfer",
+      transfer_bank_account: `${FA_API_BASE}/bank_accounts/${opts.transferBankAccountId}`,
+      description: opts.description || "Transfer",
+      dated_on: tx.bank_transaction.dated_on,
+      gross_value: tx.bank_transaction.amount,
+      marked_for_review: false,
     },
   };
 

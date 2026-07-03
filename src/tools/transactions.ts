@@ -6,6 +6,7 @@ import {
   listBankTransactions,
   updateExplanation,
   createExplanation,
+  createTransfer,
   uploadAttachment,
   deleteExistingAttachment,
   fetchUrlAsBase64,
@@ -199,7 +200,7 @@ export function registerTransactionTools(server: McpServer): void {
           contentType = contentType ?? fetched.contentType;
         }
         if (fileBase64) {
-          if (fileBase64.length > FILE_BASE64_MAX) {
+            if (fileBase64.length > FILE_BASE64_MAX) {
             throw new Error("File too large to attach (over ~7.5 MB).");
           }
           const name = fileName ?? "attachment.pdf";
@@ -281,7 +282,7 @@ export function registerTransactionTools(server: McpServer): void {
       }
     }
   );
-  
+
   // ── Categorise unexplained ─────────────────────────────────────────────
 
   server.registerTool(
@@ -352,6 +353,81 @@ export function registerTransactionTools(server: McpServer): void {
             explanationId: explanation.id,
             category: explanation.category,
             description: explanation.description,
+          },
+        };
+      } catch (err) {
+        return {
+          content: [{ type: "text", text: handleFAError(err) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ── Create Transfer ────────────────────────────────────────────────────
+
+  server.registerTool(
+    "freeagent_create_transfer",
+    {
+      description:
+        "Mark a bank transaction as a Transfer to another bank account. " +
+        "Use this for money moved between your own accounts " +
+        "(e.g. Wise→Starling, HSBC→Starling, Starling→Wise).\n\n" +
+        "Finds the right bank account IDs from freeagent_list_bank_accounts. " +
+        "Does NOT create a transaction in the target account — the target side must be explained separately.",
+      inputSchema: z
+        .object({
+          bankTransactionId: z
+            .string()
+            .min(1)
+            .describe("FreeAgent bank transaction ID to mark as a transfer"),
+          transferBankAccountId: z
+            .string()
+            .min(1)
+            .describe("Target bank account ID (from freeagent_list_bank_accounts, e.g. '1390640' for Starling)"),
+          description: z
+            .string()
+            .max(1000)
+            .optional()
+            .default("Transfer")
+            .describe("Optional description for the transfer"),
+        })
+        .strict(),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+      },
+    },
+    async (args) => {
+      try {
+        const explanation = await createTransfer({
+          bankTransactionId: args.bankTransactionId,
+          transferBankAccountId: args.transferBankAccountId,
+          description: args.description,
+        });
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  success: true,
+                  explanationId: explanation.id,
+                  type: explanation.type,
+                  transfer_bank_account: explanation.transfer_bank_account,
+                  description: explanation.description,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+          structuredContent: {
+            success: true,
+            explanationId: explanation.id,
+            type: explanation.type,
           },
         };
       } catch (err) {
