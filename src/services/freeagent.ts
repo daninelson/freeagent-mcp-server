@@ -368,6 +368,36 @@ export async function createExpense(opts: {
   return { ...expense, id: extractId(expense) };
 }
 
+/**
+ * Create a new bank transaction explanation for a previously-unexplained transaction.
+ * Uses type "Manual" so no expense object is needed.
+ */
+export async function createExplanation(opts: {
+  bankTransactionId: string;
+  categoryUrl: string;
+  description: string;
+  markExplained?: boolean;
+}): Promise<BankTransactionExplanation> {
+  validateCategoryPath(opts.categoryUrl);
+
+  const body = {
+    bank_transaction_explanation: {
+      bank_transaction: `${FA_API_BASE}/bank_transactions/${opts.bankTransactionId}`,
+      type: "Manual",
+      category: `${FA_API_BASE}${opts.categoryUrl}`,
+      description: opts.description,
+      marked_for_review: opts.markExplained === false,
+    },
+  };
+
+  const data = await faPost<{ bank_transaction_explanation: BankTransactionExplanation }>(
+    "/bank_transaction_explanations",
+    body
+  );
+  const explanation = data.bank_transaction_explanation;
+  return { ...explanation, id: extractId(explanation) };
+}
+
 /** Link an expense to a bank transaction by creating a new explanation. */
 export async function linkExpenseToEntry(opts: {
   entryId: string;
