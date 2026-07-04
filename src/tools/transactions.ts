@@ -7,6 +7,7 @@ import {
   updateExplanation,
   createExplanation,
   createTransfer,
+  deleteBankTransaction,
   uploadAttachment,
   deleteExistingAttachment,
   fetchUrlAsBase64,
@@ -200,7 +201,7 @@ export function registerTransactionTools(server: McpServer): void {
           contentType = contentType ?? fetched.contentType;
         }
         if (fileBase64) {
-            if (fileBase64.length > FILE_BASE64_MAX) {
+          if (fileBase64.length > FILE_BASE64_MAX) {
             throw new Error("File too large to attach (over ~7.5 MB).");
           }
           const name = fileName ?? "attachment.pdf";
@@ -428,6 +429,65 @@ export function registerTransactionTools(server: McpServer): void {
             success: true,
             explanationId: explanation.id,
             type: explanation.type,
+          },
+        };
+      } catch (err) {
+        return {
+          content: [{ type: "text", text: handleFAError(err) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ── Delete manual transaction ──────────────────────────────────────────
+
+  server.registerTool(
+    "freeagent_delete_transaction",
+    {
+      description:
+        "Permanently delete a manual bank transaction (is_manual=true). " +
+        "Use this to remove duplicate or incorrectly-created manual entries. " +
+        "Bank-fed transactions (is_manual=false) cannot be deleted — they are read-only. " +
+        "Get the bankTransactionId from freeagent_list_transactions. " +
+        "WARNING: This is destructive and cannot be undone.",
+      inputSchema: z
+        .object({
+          bankTransactionId: z
+            .string()
+            .min(1)
+            .describe("FreeAgent bank transaction ID to delete (from the `id` field in list_transactions)"),
+        })
+        .strict(),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+      },
+    },
+    async (args) => {
+      try {
+        await deleteBankTransaction(args.bankTransactionId);
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(
+                {
+                  success: true,
+                  action: "deleted",
+                  bankTransactionId: args.bankTransactionId,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+          structuredContent: {
+            success: true,
+            action: "deleted",
+            bankTransactionId: args.bankTransactionId,
           },
         };
       } catch (err) {

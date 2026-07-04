@@ -408,6 +408,8 @@ export async function createExplanation(opts: {
 /**
  * Create a Transfer-type bank transaction explanation.
  * Transfers move money between accounts — no category needed, just the target bank account.
+ * If the transaction already has any explanations, they are deleted first so the new
+ * Transfer explanation can be created.
  */
 export async function createTransfer(opts: {
   bankTransactionId: string;
@@ -417,6 +419,15 @@ export async function createTransfer(opts: {
   const tx = await faGet<{ bank_transaction: BankTransaction }>(
     `/bank_transactions/${opts.bankTransactionId}`
   );
+
+  // Delete any existing explanations first — FreeAgent won't accept a second one.
+  const explanations = tx.bank_transaction?.bank_transaction_explanations;
+  if (explanations && explanations.length > 0) {
+    for (const exp of explanations) {
+      const expId = extractId(exp);
+      await faDelete(`/bank_transaction_explanations/${expId}`);
+    }
+  }
 
   const body = {
     bank_transaction_explanation: {
@@ -436,6 +447,44 @@ export async function createTransfer(opts: {
   );
   const explanation = data.bank_transaction_explanation;
   return { ...explanation, id: extractId(explanation) };
+}
+
+/**
+ * Delete a manual bank transaction. Only works on `is_manual: true` transactions.
+ * Bank-fed transactions cannot be deleted via the API.
+ * Must delete explanations first, then the transaction itself.
+ *
+ * API docs:
+ *   - DELETE /v2/bank_transaction_explanations/:id  (delete explanation)
+ *   - DELETE /v2/bank_transaction/:id (singular)    (delete transaction — only if unexplained)
+ */
+export async function deleteBankTransaction(
+  bankTransactionId: string
+): Promise<void> {
+  // 1. Delete explanation first (if any) — required before deleting the transaction
+  const tx = await faGet<{
+    bank_transaction: BankTransaction;
+  }>(`/bank_transactions/${bankTransactionId}`);
+
+  const explanations = tx.bank_transaction?.bank_transaction_explanations;
+  if (explanations && explanations.length > 0) {
+    for (const exp of explanations) {
+      const expId = extractId(exp);
+      await faDelete(`/bank_transaction_explanations/${expId}`);
+    }
+  }
+
+  // 2. Delete the transaction itself.
+  // Note: Deleting the explanation may already cascade-delete the transaction,
+  // so a 404 on this step is treated as success.
+  try {
+    await faDelete(`/bank_transactions/${bankTransactionId}`);
+  } catch (err) {
+    if (err instanceof AxiosError && err.response?.status === 404) {
+      return; // already deleted by cascade
+    }
+    throw err;
+  }
 }
 
 /** Link an expense to a bank transaction by creating a new explanation. */
@@ -465,12 +514,13 @@ export function handleFAError(error: unknown): string {
   if (error instanceof AxiosError) {
     if (error.response) {
       const status = error.response.status;
-      const rawErrors = (error.response.data as { errors?: unknown })?.errors;
+      const responseData = error.response.data as Record<string, unknown>;
+      const rawErrors = responseData?.errors;
       const detail = Array.isArray(rawErrors)
         ? rawErrors.map(String).join(", ")
         : rawErrors != null
-          ? String(rawErrors)
-          : "";
+          ? JSON.stringify(rawErrors)
+          : JSON.stringify(responseData).slice(0, 500);
       switch (status) {
         case 401:
           return "Error: FreeAgent authentication failed. Check FREEAGENT_CLIENT_ID, CLIENT_SECRET, and REFRESH_TOKEN.";
